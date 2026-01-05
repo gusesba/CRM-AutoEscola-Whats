@@ -68,4 +68,43 @@ router.get("/:userId/conversations", async (req, res) => {
   }
 });
 
+router.get("/:userId/messages/:chatId", async (req, res) => {
+  const { userId, chatId } = req.params;
+  const limit = Number(req.query.limit) || 50;
+
+  const session = getSession(userId);
+
+  if (!session || !session.isReady()) {
+    return res.status(401).json({
+      error: "WhatsApp não conectado",
+    });
+  }
+
+  try {
+    const chat = await session.client.getChatById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({ error: "Chat não encontrado" });
+    }
+
+    const messages = await chat.fetchMessages({ limit });
+
+    const result = messages.map((msg) => ({
+      id: msg.id._serialized,
+      body: msg.body,
+      fromMe: msg.fromMe,
+      timestamp: msg.timestamp,
+      type: msg.type,
+      hasMedia: msg.hasMedia,
+      author: msg.author || null,
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar mensagens" });
+  }
+});
+
+
 module.exports = router;
