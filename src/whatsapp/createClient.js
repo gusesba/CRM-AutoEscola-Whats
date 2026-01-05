@@ -1,4 +1,5 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
+const { emitMessage } = require("../socket");
 const qrcode = require("qrcode");
 
 function createWhatsAppClient(userId) {
@@ -29,6 +30,22 @@ function createWhatsAppClient(userId) {
 
   client.on("auth_failure", (msg) => {
     console.error(`[${userId}] Falha auth`, msg);
+  });
+
+  client.on("message_create", async (msg) => {
+    if (!msg.fromMe) return;
+
+    emitMessage(userId, {
+      chatId: msg.to, // ⚠️ IMPORTANTE (veja abaixo)
+      message: {
+        id: msg.id._serialized,
+        body: msg.body,
+        fromMe: true,
+        timestamp: msg.timestamp,
+        type: msg.type,
+        hasMedia: msg.hasMedia,
+      },
+    });
   });
 
   client.initialize();

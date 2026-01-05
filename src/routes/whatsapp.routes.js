@@ -106,5 +106,31 @@ router.get("/:userId/messages/:chatId", async (req, res) => {
   }
 });
 
+router.post("/:userId/messages/:chatId", async (req, res) => {
+  const { userId, chatId } = req.params;
+  const { message } = req.body;
+
+  const session = getSession(userId);
+
+  if (!session || !session.isReady()) {
+    return res.status(401).json({ error: "WhatsApp não conectado" });
+  }
+
+  if (!message) {
+    return res.status(400).json({ error: "Mensagem inválida" });
+  }
+
+  try {
+    const chat = await session.client.getChatById(chatId);
+    await chat.sendMessage(message);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao enviar mensagem" });
+  }
+});
+
+
 
 module.exports = router;
