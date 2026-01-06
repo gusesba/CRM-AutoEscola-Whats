@@ -32,15 +32,30 @@ function createWhatsAppClient(userId) {
     console.error(`[${userId}] Falha auth`, msg);
   });
 
-  client.on("message_create", async (msg) => {
-    if (!msg.fromMe) return;
-
+  client.on("message_create", (msg) => {
+    if (!msg.fromMe) return; // 🔑 chave da correção
+    console.log("Mensagem enviada");
     emitMessage(userId, {
-      chatId: msg.to, // ⚠️ IMPORTANTE (veja abaixo)
+      chatId: msg.to,
       message: {
         id: msg.id._serialized,
         body: msg.body,
         fromMe: true,
+        timestamp: msg.timestamp,
+        type: msg.type,
+        hasMedia: msg.hasMedia,
+      },
+    });
+  });
+
+  client.on("message", (msg) => {
+    console.log("Nova mensagem recebida");
+    emitMessage(userId, {
+      chatId: msg.from,
+      message: {
+        id: msg.id._serialized,
+        body: msg.body,
+        fromMe: false,
         timestamp: msg.timestamp,
         type: msg.type,
         hasMedia: msg.hasMedia,
