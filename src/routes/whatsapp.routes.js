@@ -33,40 +33,103 @@ router.get("/:userId/login", (req, res) => {
   });
 });
 
+function withTimeout(promise, ms, fallback = null) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve(fallback), ms)
+    ),
+  ]);
+}
+
 /**
  * LISTAR CONVERSAS
  */
+const profilePicCache = new Map();
+
+
 router.get("/:userId/conversations", async (req, res) => {
   const { userId } = req.params;
   const session = getSession(userId);
 
-  if (!session.isReady()) {
-    return res.status(401).json({
-      error: "WhatsApp não conectado",
-    });
+  if (!session || !session.isReady()) {
+    console.log(`[${userId}] ❌ WhatsApp não conectado`);
+    return res.status(401).json({ error: "WhatsApp não conectado" });
   }
+
+  console.log(`[${userId}] 🔄 Buscando conversas...`);
 
   try {
     const chats = await session.client.getChats();
+    const total = chats.length;
 
-    const result = chats.map((chat) => ({
-      id: chat.id._serialized,
-      name: chat.name || chat.id.user,
-      isGroup: chat.isGroup,
-      unreadCount: chat.unreadCount,
-      lastMessage: chat.lastMessage
-        ? {
-            body: chat.lastMessage.body,
-            timestamp: chat.lastMessage.timestamp,
+    console.log(`[${userId}] 📦 ${total} chats encontrados`);
+
+    const result = [];
+    let processed = 0;
+
+    const CONCURRENCY = 5;
+
+    for (let i = 0; i < chats.length; i += CONCURRENCY) {
+      const batch = chats.slice(i, i + CONCURRENCY);
+
+      const batchResults = await Promise.all(
+        batch.map(async (chat) => {
+          const chatId = chat.id._serialized;
+
+          let profilePicUrl = profilePicCache.get(chatId) ?? null;
+
+          if (!profilePicCache.has(chatId)) {
+            try {
+              profilePicUrl = await withTimeout(
+                session.client.getProfilePicUrl(chatId),
+                3000, // ⏱️ 3s timeout
+                null
+              );
+
+              profilePicCache.set(chatId, profilePicUrl);
+            } catch (err) {
+              console.error(
+                `[${userId}] ⚠️ Avatar erro (${chatId}):`,
+                err.message
+              );
+              profilePicCache.set(chatId, null);
+            }
           }
-        : null,
-    }));
 
+          processed++;
+          return {
+            id: chatId,
+            name: chat.name || chat.id.user,
+            isGroup: chat.isGroup,
+            unreadCount: chat.unreadCount ?? 0,
+            profilePicUrl,
+            lastMessage: chat.lastMessage
+              ? {
+                  body: chat.lastMessage.body,
+                  timestamp: chat.lastMessage.timestamp,
+                }
+              : null,
+          };
+        })
+      );
+
+      result.push(...batchResults);
+
+      const percent = Math.round((processed / total) * 100);
+      console.log(
+        `[${userId}] ⏳ Progresso: ${processed}/${total} (${percent}%)`
+      );
+    }
+
+    console.log(`[${userId}] ✅ Conversas carregadas com sucesso`);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(`[${userId}] ❌ Erro geral:`, err);
+    res.status(500).json({ error: "Erro ao buscar conversas" });
   }
 });
+
 
 router.get("/:userId/messages/:chatId", async (req, res) => {
   const { userId, chatId } = req.params;
