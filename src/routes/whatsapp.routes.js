@@ -1,5 +1,18 @@
 const express = require("express");
 const { getSession } = require("../whatsapp/manager");
+const {
+  saveMedia,
+  getCachedMedia,
+} = require("../utils/mediaCache");
+
+function getMessageType(msg) {
+  if (!msg.hasMedia) return "chat";
+  if (msg.type === "image") return "image";
+  if (msg.type === "video") return "video";
+  if (msg.type === "audio" || msg.type === "ptt") return "audio";
+  if (msg.type === "sticker") return "sticker";
+  return "document";
+}
 
 const router = express.Router();
 
@@ -157,8 +170,11 @@ router.get("/:userId/messages/:chatId", async (req, res) => {
       body: msg.body,
       fromMe: msg.fromMe,
       timestamp: msg.timestamp,
-      type: msg.type,
+      type: getMessageType(msg),
       hasMedia: msg.hasMedia,
+      mediaUrl: msg.hasMedia
+        ? `/whatsapp/${userId}/messages/${msg.id._serialized}/media`
+        : null,
       author: msg.author || null,
     }));
 
@@ -168,6 +184,47 @@ router.get("/:userId/messages/:chatId", async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar mensagens" });
   }
 });
+
+router.get("/:userId/messages/:messageId/media", async (req, res) => {
+  const { userId, messageId } = req.params;
+
+  const session = getSession(userId);
+  if (!session || !session.isReady()) {
+    return res.status(401).end();
+  }
+
+  try {
+    const msg = await session.client.getMessageById(messageId);
+
+    if (!msg || !msg.hasMedia) {
+      return res.status(404).end();
+    }
+
+    // 🔁 cache
+    const cached = getCachedMedia(messageId);
+    let absolutePath;
+    let mimetype;
+
+    if (cached) {
+      absolutePath = cached.absolutePath;
+      mimetype = cached.mimetype;
+    } else {
+      const media = await msg.downloadMedia();
+      const saved = saveMedia(media, messageId);
+      absolutePath = saved.absolutePath;
+      mimetype = media.mimetype;
+    }
+
+    res.setHeader("Content-Type", mimetype);
+    res.setHeader("Content-Disposition", "inline");
+
+    return res.sendFile(absolutePath);
+  } catch (err) {
+    console.error("Erro ao servir mídia:", err);
+    return res.status(500).end();
+  }
+});
+
 
 router.post("/:userId/messages/:chatId", async (req, res) => {
   const { userId, chatId } = req.params;

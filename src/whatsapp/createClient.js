@@ -1,6 +1,17 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { emitMessage } = require("../socket");
 const qrcode = require("qrcode");
+const { saveMedia } = require("../utils/mediaCache");
+
+function getMessageType(msg) {
+  if (!msg.hasMedia) return "chat";
+  if (msg.type === "image") return "image";
+  if (msg.type === "video") return "video";
+  if (msg.type === "audio" || msg.type === "ptt") return "audio";
+  if (msg.type === "sticker") return "sticker";
+  return "document";
+}
+
 
 function createWhatsAppClient(userId) {
   let qrCodeBase64 = null;
@@ -32,9 +43,22 @@ function createWhatsAppClient(userId) {
     console.error(`[${userId}] Falha auth`, msg);
   });
 
-  client.on("message_create", (msg) => {
+  client.on("message_create", async (msg) => {
     if (!msg.fromMe) return; // 🔑 chave da correção
     console.log("Mensagem enviada");
+
+    let mediaUrl = null;
+    let mimetype = null;
+
+    if (msg.hasMedia) {
+      const media = await msg.downloadMedia();
+      mimetype = media.mimetype;
+
+      // ⚠️ você NÃO deve mandar base64 pelo socket
+      // Salve em disco / S3 / CDN
+      mediaUrl = `/whatsapp/${userId}/messages/${msg.id._serialized}/media`;
+    }
+  
     emitMessage(userId, {
       chatId: msg.to,
       message: {
@@ -42,14 +66,29 @@ function createWhatsAppClient(userId) {
         body: msg.body,
         fromMe: true,
         timestamp: msg.timestamp,
-        type: msg.type,
+        type: getMessageType(msg),
         hasMedia: msg.hasMedia,
+        mediaUrl,
+        mimetype,
       },
     });
   });
 
-  client.on("message", (msg) => {
+  client.on("message", async (msg) => {    
     console.log("Nova mensagem recebida");
+
+    let mediaUrl = null;
+    let mimetype = null;
+
+    if (msg.hasMedia) {
+      const media = await msg.downloadMedia();
+      mimetype = media.mimetype;
+
+      // ⚠️ você NÃO deve mandar base64 pelo socket
+      // Salve em disco / S3 / CDN
+      mediaUrl = `/whatsapp/${userId}/messages/${msg.id._serialized}/media`;
+    }
+
     emitMessage(userId, {
       chatId: msg.from,
       message: {
@@ -57,8 +96,10 @@ function createWhatsAppClient(userId) {
         body: msg.body,
         fromMe: false,
         timestamp: msg.timestamp,
-        type: msg.type,
+        type: getMessageType(msg),
         hasMedia: msg.hasMedia,
+        mediaUrl,
+        mimetype,
       },
     });
   });
