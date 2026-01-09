@@ -4,6 +4,9 @@ const {
   saveMedia,
   getCachedMedia,
 } = require("../utils/mediaCache");
+const multer = require("multer");
+const fs = require("fs");
+const { MessageMedia } = require("whatsapp-web.js");
 
 function getMessageType(msg) {
   if (!msg.hasMedia) return "chat";
@@ -194,36 +197,33 @@ router.get("/:userId/messages/:messageId/media", async (req, res) => {
   }
 
   try {
+    // ✅ PRIORIDADE TOTAL AO CACHE
+    const cached = getCachedMedia(messageId);
+    if (cached) {
+      res.setHeader("Content-Type", cached.mimetype);
+      res.setHeader("Content-Disposition", "inline");
+      return res.sendFile(cached.absolutePath);
+    }
+
+    // 🔽 Só tenta baixar se NÃO estiver no cache
     const msg = await session.client.getMessageById(messageId);
 
     if (!msg || !msg.hasMedia) {
       return res.status(404).end();
     }
 
-    // 🔁 cache
-    const cached = getCachedMedia(messageId);
-    let absolutePath;
-    let mimetype;
+    const media = await msg.downloadMedia();
+    const saved = saveMedia(media, messageId);
 
-    if (cached) {
-      absolutePath = cached.absolutePath;
-      mimetype = cached.mimetype;
-    } else {
-      const media = await msg.downloadMedia();
-      const saved = saveMedia(media, messageId);
-      absolutePath = saved.absolutePath;
-      mimetype = media.mimetype;
-    }
-
-    res.setHeader("Content-Type", mimetype);
+    res.setHeader("Content-Type", saved.mimetype);
     res.setHeader("Content-Disposition", "inline");
-
-    return res.sendFile(absolutePath);
+    return res.sendFile(saved.absolutePath);
   } catch (err) {
     console.error("Erro ao servir mídia:", err);
     return res.status(500).end();
   }
 });
+
 
 
 router.post("/:userId/messages/:chatId", async (req, res) => {
@@ -250,6 +250,63 @@ router.post("/:userId/messages/:chatId", async (req, res) => {
     res.status(500).json({ error: "Erro ao enviar mensagem" });
   }
 });
+
+const upload = multer({ dest: "uploads/" });
+
+router.post(
+  "/:userId/messages/:chatId/media",
+  upload.single("file"),
+  async (req, res) => {
+    const { userId, chatId } = req.params;
+    const { caption } = req.body;
+    const file = req.file;
+
+    const session = getSession(userId);
+    if (!session || !session.isReady()) {
+      return res.status(401).json({ error: "WhatsApp não conectado" });
+    }
+
+    if (!file) {
+      return res.status(400).json({ error: "Arquivo não enviado" });
+    }
+
+    try {
+      const chat = await session.client.getChatById(chatId);
+
+      const buffer = fs.readFileSync(file.path);
+      const base64 = buffer.toString("base64");
+
+      const media = new MessageMedia(
+        file.mimetype,
+        base64,
+        file.originalname // 🔥 EXTREMAMENTE IMPORTANTE
+      );
+
+      // ✅ ENVIA E RECEBE A MENSAGEM REAL
+      const sentMsg = await chat.sendMessage(media, { caption });
+
+      // 🔥 AGORA SIM: salva no cache DEFINITIVO
+      saveMedia(
+        {
+          data: fs.readFileSync(file.path, "base64"),
+          mimetype: file.mimetype,
+        },
+        sentMsg.id._serialized
+      );
+
+      fs.unlinkSync(file.path); // limpa upload temporário
+
+      res.json({
+        success: true,
+        messageId: sentMsg.id._serialized,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Erro ao enviar mídia" });
+    }
+  }
+);
+
 
 
 
