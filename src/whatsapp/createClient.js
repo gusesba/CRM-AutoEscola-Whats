@@ -48,13 +48,8 @@ function createWhatsAppClient(userId) {
     console.log("Mensagem enviada");
 
     let mediaUrl = null;
-    let mimetype = null;
-
     if (msg.hasMedia) {
-      const media = await msg.downloadMedia();
-      mimetype = media.mimetype;
-
-      // ⚠️ você NÃO deve mandar base64 pelo socket
+    // ⚠️ você NÃO deve mandar base64 pelo socket
       // Salve em disco / S3 / CDN
       mediaUrl = `/whatsapp/${userId}/messages/${msg.id._serialized}/media`;
     }
@@ -69,7 +64,6 @@ function createWhatsAppClient(userId) {
         type: getMessageType(msg),
         hasMedia: msg.hasMedia,
         mediaUrl,
-        mimetype,
       },
     });
   });
@@ -78,11 +72,8 @@ function createWhatsAppClient(userId) {
     console.log("Nova mensagem recebida");
 
     let mediaUrl = null;
-    let mimetype = null;
 
     if (msg.hasMedia) {
-      const media = await msg.downloadMedia();
-      mimetype = media.mimetype;
 
       // ⚠️ você NÃO deve mandar base64 pelo socket
       // Salve em disco / S3 / CDN
@@ -99,7 +90,6 @@ function createWhatsAppClient(userId) {
         type: getMessageType(msg),
         hasMedia: msg.hasMedia,
         mediaUrl,
-        mimetype,
       },
     });
   });
