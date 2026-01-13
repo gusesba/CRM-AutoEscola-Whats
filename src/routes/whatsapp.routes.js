@@ -8,6 +8,10 @@ const multer = require("multer");
 const fs = require("fs");
 const { MessageMedia } = require("whatsapp-web.js");
 
+const BATCH_DELAY_MODE = "fixed";
+const BATCH_FIXED_DELAY_MS = 1500;
+const BATCH_RANDOM_DELAY_RANGE_MS = { min: 1000, max: 3000 };
+
 function getMessageType(msg) {
   if (!msg.hasMedia) return "chat";
   if (msg.type === "image") return "image";
@@ -15,6 +19,23 @@ function getMessageType(msg) {
   if (msg.type === "audio" || msg.type === "ptt") return "audio";
   if (msg.type === "sticker") return "sticker";
   return "document";
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRandomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function normalizeBase64(data) {
+  if (typeof data !== "string") return null;
+  if (data.startsWith("data:")) {
+    const split = data.split(",");
+    return split.length > 1 ? split[1] : null;
+  }
+  return data;
 }
 
 const router = express.Router();
@@ -307,7 +328,128 @@ router.post(
   }
 );
 
+router.post("/:userId/messages/batch", async (req, res) => {
+  const { userId } = req.params;
+  const { chatIds, items } = req.body;
 
+  const session = getSession(userId);
+  if (!session || !session.isReady()) {
+    return res.status(401).json({ error: "WhatsApp não conectado" });
+  }
 
+  if (!Array.isArray(chatIds) || chatIds.length === 0) {
+    return res.status(400).json({ error: "Lista de chats inválida" });
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "Lista de mensagens inválida" });
+  }
+
+  const delayConfig =
+    BATCH_DELAY_MODE === "fixed"
+      ? {
+          mode: "fixed",
+          delayMs: BATCH_FIXED_DELAY_MS,
+        }
+      : {
+          mode: "random",
+          minMs: BATCH_RANDOM_DELAY_RANGE_MS.min,
+          maxMs: BATCH_RANDOM_DELAY_RANGE_MS.max,
+        };
+
+  for (const item of items) {
+    if (item?.type === "text") {
+      if (typeof item.message !== "string" || item.message.trim() === "") {
+        return res.status(400).json({ error: "Mensagem de texto inválida" });
+      }
+    } else if (item?.type === "media") {
+      const normalized = normalizeBase64(item.data);
+      if (
+        !normalized ||
+        typeof item.mimetype !== "string" ||
+        item.mimetype.trim() === ""
+      ) {
+        return res.status(400).json({ error: "Mídia inválida" });
+      }
+    } else {
+      return res.status(400).json({ error: "Tipo de mensagem inválido" });
+    }
+  }
+
+  const results = [];
+
+  for (const chatId of chatIds) {
+    const chatResult = { chatId, sent: [], errors: [] };
+
+    try {
+      const chat = await session.client.getChatById(chatId);
+      if (!chat) {
+        chatResult.errors.push("Chat não encontrado");
+        results.push(chatResult);
+        continue;
+      }
+
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+
+        try {
+          let sentMsg;
+
+          if (item.type === "text") {
+            sentMsg = await chat.sendMessage(item.message);
+          } else {
+            const data = normalizeBase64(item.data);
+            const media = new MessageMedia(
+              item.mimetype,
+              data,
+              item.filename || "media"
+            );
+            sentMsg = await chat.sendMessage(media, {
+              caption: item.caption,
+            });
+
+            saveMedia(
+              {
+                data,
+                mimetype: item.mimetype,
+              },
+              sentMsg.id._serialized
+            );
+          }
+
+          chatResult.sent.push({
+            index,
+            type: item.type,
+            messageId: sentMsg.id._serialized,
+          });
+        } catch (err) {
+          console.error(err);
+          chatResult.errors.push(
+            `Erro ao enviar item ${index + 1}: ${err.message}`
+          );
+        }
+
+        const hasNextMessage = index < items.length - 1;
+        if (hasNextMessage) {
+          const delayToUse =
+            delayConfig.mode === "fixed"
+              ? delayConfig.delayMs
+              : getRandomInt(delayConfig.minMs, delayConfig.maxMs);
+          if (delayToUse > 0) {
+            await wait(delayToUse);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      chatResult.errors.push(`Erro ao enviar para chat: ${err.message}`);
+    }
+
+    results.push(chatResult);
+  }
+
+  const success = results.every((result) => result.errors.length === 0);
+  return res.json({ success, results });
+});
 
 module.exports = router;
