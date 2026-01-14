@@ -38,6 +38,16 @@ function normalizeBase64(data) {
   return data;
 }
 
+function applyTemplate(text, params = {}) {
+  if (typeof text !== "string") return text;
+  if (!params || typeof params !== "object") return text;
+  return text.replace(/\$\{([^}]+)\}/g, (match, key) => {
+    const value = params[key.trim()];
+    if (value === undefined || value === null) return match;
+    return String(value);
+  });
+}
+
 const router = express.Router();
 
 /**
@@ -249,7 +259,7 @@ router.get("/:userId/messages/:messageId/media", async (req, res) => {
 
 router.post("/:userId/messages/batch", async (req, res) => {
   const { userId } = req.params;
-  const { chatIds, items } = req.body;
+  const { chatIds, items, paramsByChatId } = req.body;
   const session = getSession(userId);
   if (!session || !session.isReady()) {
     return res.status(401).json({ error: "WhatsApp não conectado" });
@@ -259,6 +269,12 @@ router.post("/:userId/messages/batch", async (req, res) => {
   }
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Lista de mensagens inválida" });
+  }
+  if (
+    paramsByChatId !== undefined &&
+    (typeof paramsByChatId !== "object" || Array.isArray(paramsByChatId))
+  ) {
+    return res.status(400).json({ error: "Parâmetros por chat inválidos" });
   }
 
   const delayConfig =
@@ -305,12 +321,14 @@ router.post("/:userId/messages/batch", async (req, res) => {
 
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index];
+        const chatParams = paramsByChatId?.[chatId] ?? {};
 
         try {
           let sentMsg;
 
           if (item.type === "text") {
-            sentMsg = await chat.sendMessage(item.message,{sendSeen: false});
+            const message = applyTemplate(item.message, chatParams);
+            sentMsg = await chat.sendMessage(message, { sendSeen: false });
           } else {
             const data = normalizeBase64(item.data);
             const media = new MessageMedia(
@@ -318,8 +336,12 @@ router.post("/:userId/messages/batch", async (req, res) => {
               data,
               item.filename || "media"
             );
+            const caption =
+              typeof item.caption === "string"
+                ? applyTemplate(item.caption, chatParams)
+                : item.caption;
             sentMsg = await chat.sendMessage(media, {
-              caption: item.caption,
+              caption,
               sendSeen: false
             });
 
