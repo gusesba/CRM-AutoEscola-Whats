@@ -46,6 +46,8 @@ const router = express.Router();
 router.get("/:userId/login", (req, res) => {
   const { userId } = req.params;
 
+  if(!userId || userId == undefined || userId == "undefined" || userId == null) return;
+
   const session = getSession(userId);
 
   if (session.isReady()) {
