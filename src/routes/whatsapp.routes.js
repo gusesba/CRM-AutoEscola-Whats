@@ -310,7 +310,7 @@ router.post("/:userId/messages/batch", async (req, res) => {
           let sentMsg;
 
           if (item.type === "text") {
-            sentMsg = await chat.sendMessage(item.message);
+            sentMsg = await chat.sendMessage(item.message,{sendSeen: false});
           } else {
             const data = normalizeBase64(item.data);
             const media = new MessageMedia(
@@ -320,6 +320,7 @@ router.post("/:userId/messages/batch", async (req, res) => {
             );
             sentMsg = await chat.sendMessage(media, {
               caption: item.caption,
+              sendSeen: false
             });
 
             saveMedia(
@@ -383,7 +384,7 @@ router.post("/:userId/messages/:chatId", async (req, res) => {
 
   try {
     const chat = await session.client.getChatById(chatId);
-    await chat.sendMessage(message);
+    await chat.sendMessage(message, {sendSeen: false});
 
     res.json({ success: true });
   } catch (err) {
@@ -424,7 +425,7 @@ router.post(
       );
 
       // ✅ ENVIA E RECEBE A MENSAGEM REAL
-      const sentMsg = await chat.sendMessage(media, { caption });
+      const sentMsg = await chat.sendMessage(media, { caption, sendSeen: false });
 
       // 🔥 AGORA SIM: salva no cache DEFINITIVO
       saveMedia(
