@@ -1,5 +1,5 @@
 const express = require("express");
-const { getSession } = require("../whatsapp/manager");
+const { getSession, removeSession } = require("../whatsapp/manager");
 const {
   saveMedia,
   getCachedMedia,
@@ -80,6 +80,25 @@ router.get("/:userId/login", (req, res) => {
     status: "qr",
     qrCode: qr,
   });
+});
+
+/**
+ * LIMPAR SESSÃO (LOGOUT)
+ */
+router.delete("/:userId/session", async (req, res) => {
+  const { userId } = req.params;
+
+  if (!userId || userId === "undefined" || userId === null) {
+    return res.status(400).json({ error: "Usuário inválido" });
+  }
+
+  try {
+    await removeSession(userId);
+    return res.json({ success: true, message: "Sessão removida" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Erro ao remover sessão" });
+  }
 });
 
 function withTimeout(promise, ms, fallback = null) {
