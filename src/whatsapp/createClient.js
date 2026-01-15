@@ -40,7 +40,13 @@ function createWhatsAppClient(userId) {
   });
 
   client.on("auth_failure", (msg) => {
+    ready = false;
     console.error(`[${userId}] Falha auth`, msg);
+  });
+
+  client.on("disconnected", (reason) => {
+    ready = false;
+    console.warn(`[${userId}] WhatsApp desconectado`, reason);
   });
 
   client.on("message_create", async (msg) => {
