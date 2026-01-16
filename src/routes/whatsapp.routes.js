@@ -278,7 +278,14 @@ router.get("/:userId/messages/:messageId/media", async (req, res) => {
 
 router.post("/:userId/messages/batch", async (req, res) => {
   const { userId } = req.params;
-  const { chatIds, items, paramsByChatId } = req.body;
+  const {
+    chatIds,
+    items,
+    paramsByChatId,
+    intervalMs,
+    bigIntervalMs,
+    messagesUntilBigInterval,
+  } = req.body;
   const session = getSession(userId);
   if (!session || !session.isReady()) {
     return res.status(401).json({ error: "WhatsApp não conectado" });
@@ -296,6 +303,26 @@ router.post("/:userId/messages/batch", async (req, res) => {
     return res.status(400).json({ error: "Parâmetros por chat inválidos" });
   }
 
+  if (
+    intervalMs !== undefined &&
+    (typeof intervalMs !== "number" || Number.isNaN(intervalMs))
+  ) {
+    return res.status(400).json({ error: "Intervalo inválido" });
+  }
+  if (
+    bigIntervalMs !== undefined &&
+    (typeof bigIntervalMs !== "number" || Number.isNaN(bigIntervalMs))
+  ) {
+    return res.status(400).json({ error: "Intervalo grande inválido" });
+  }
+  if (
+    messagesUntilBigInterval !== undefined &&
+    (!Number.isInteger(messagesUntilBigInterval) ||
+      messagesUntilBigInterval <= 0)
+  ) {
+    return res.status(400).json({ error: "Quantidade até intervalo grande inválida" });
+  }
+
   const delayConfig =
     BATCH_DELAY_MODE === "fixed"
       ? {
@@ -307,6 +334,11 @@ router.post("/:userId/messages/batch", async (req, res) => {
           minMs: BATCH_RANDOM_DELAY_RANGE_MS.min,
           maxMs: BATCH_RANDOM_DELAY_RANGE_MS.max,
         };
+
+  const shouldUseCustomDelay =
+    intervalMs !== undefined ||
+    bigIntervalMs !== undefined ||
+    messagesUntilBigInterval !== undefined;
   
   for (const item of items) {
     if (item?.type === "text") {
@@ -337,6 +369,31 @@ router.post("/:userId/messages/batch", async (req, res) => {
         results.push(chatResult);
         continue;
       }
+
+      const randomizeDelay = (baseMs) => {
+        if (typeof baseMs !== "number") {
+          return 0;
+        }
+        const randomized = baseMs + getRandomInt(-3000, 3000);
+        return Math.max(0, randomized);
+      };
+
+      const randomizeCount = (baseCount) => {
+        if (!Number.isInteger(baseCount)) {
+          return 0;
+        }
+        return Math.max(1, baseCount + getRandomInt(-3, 3));
+      };
+
+      const effectiveIntervalMs = shouldUseCustomDelay
+        ? randomizeDelay(intervalMs ?? 0)
+        : null;
+      const effectiveBigIntervalMs = shouldUseCustomDelay
+        ? randomizeDelay(bigIntervalMs ?? 0)
+        : null;
+      const effectiveMessagesUntilBigInterval = shouldUseCustomDelay
+        ? randomizeCount(messagesUntilBigInterval ?? 0)
+        : null;
 
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index];
@@ -387,10 +444,22 @@ router.post("/:userId/messages/batch", async (req, res) => {
 
         const hasNextMessage = index < items.length - 1;
         if (hasNextMessage) {
-          const delayToUse =
-            delayConfig.mode === "fixed"
-              ? delayConfig.delayMs
-              : getRandomInt(delayConfig.minMs, delayConfig.maxMs);
+          let delayToUse;
+
+          if (shouldUseCustomDelay) {
+            const nextIndex = index + 1;
+            const shouldUseBigInterval =
+              effectiveMessagesUntilBigInterval > 0 &&
+              nextIndex % effectiveMessagesUntilBigInterval === 0;
+            delayToUse = shouldUseBigInterval
+              ? effectiveBigIntervalMs
+              : effectiveIntervalMs;
+          } else {
+            delayToUse =
+              delayConfig.mode === "fixed"
+                ? delayConfig.delayMs
+                : getRandomInt(delayConfig.minMs, delayConfig.maxMs);
+          }
           if (delayToUse > 0) {
             await wait(delayToUse);
           }
