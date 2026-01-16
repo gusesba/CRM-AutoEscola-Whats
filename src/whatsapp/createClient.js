@@ -13,9 +13,28 @@ function getMessageType(msg) {
 }
 
 
-function createWhatsAppClient(userId) {
+function createWhatsAppClient(userId, options = {}) {
+  const { onInvalidated } = options;
   let qrCodeBase64 = null;
   let ready = false;
+  let active = true;
+  let invalidated = false;
+
+  const invalidate = (reason) => {
+    if (invalidated) return;
+    invalidated = true;
+    ready = false;
+    active = false;
+    if (typeof onInvalidated === "function") {
+      Promise.resolve(onInvalidated(reason)).catch((err) => {
+        console.error(`[${userId}] Falha ao invalidar sessão`, err);
+      });
+    } else {
+      client.destroy().catch((err) => {
+        console.error(`[${userId}] Falha ao destruir cliente`, err);
+      });
+    }
+  };
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -34,7 +53,9 @@ function createWhatsAppClient(userId) {
   });
 
   client.on("ready", () => {
+    if (invalidated) return;
     ready = true;
+    active = true;
     qrCodeBase64 = null;
     console.log(`[${userId}] WhatsApp conectado`);
   });
@@ -42,11 +63,13 @@ function createWhatsAppClient(userId) {
   client.on("auth_failure", (msg) => {
     ready = false;
     console.error(`[${userId}] Falha auth`, msg);
+    invalidate("auth_failure");
   });
 
   client.on("disconnected", (reason) => {
     ready = false;
     console.warn(`[${userId}] WhatsApp desconectado`, reason);
+    invalidate(reason);
   });
 
   client.on("message_create", async (msg) => {
@@ -106,6 +129,7 @@ function createWhatsAppClient(userId) {
     client,
     getQr: () => qrCodeBase64,
     isReady: () => ready,
+    isActive: () => active,
   };
 }
 

@@ -8,8 +8,18 @@ const sessions = new Map();
  * Retorna sessão existente ou cria nova
  */
 function getSession(userId) {
+  if (sessions.has(userId)) {
+    const existing = sessions.get(userId);
+    if (existing && typeof existing.isActive === "function" && !existing.isActive()) {
+      sessions.delete(userId);
+    }
+  }
   if (!sessions.has(userId)) {
-    const session = createWhatsAppClient(userId);
+    const session = createWhatsAppClient(userId, {
+      onInvalidated: async () => {
+        await removeSession(userId);
+      },
+    });
     sessions.set(userId, session);
   }
   return sessions.get(userId);
