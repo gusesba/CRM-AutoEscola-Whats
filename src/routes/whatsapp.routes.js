@@ -11,6 +11,52 @@ const { MessageMedia } = require("whatsapp-web.js");
 const BATCH_DELAY_MODE = "fixed";
 const BATCH_FIXED_DELAY_MS = 1500;
 const BATCH_RANDOM_DELAY_RANGE_MS = { min: 1000, max: 3000 };
+const DEFAULT_VALIDATE_ENDPOINT = "/api/usuario/validartoken";
+const VALIDATE_TOKEN_URL =
+  process.env.VALIDATE_TOKEN_URL ||
+  (process.env.API_BASE_URL
+    ? new URL(DEFAULT_VALIDATE_ENDPOINT, process.env.API_BASE_URL).toString()
+    : process.env.WHATSAPP_BACKUP_URL
+    ? new URL(
+        DEFAULT_VALIDATE_ENDPOINT,
+        new URL(process.env.WHATSAPP_BACKUP_URL).origin
+      ).toString()
+    : null);
+
+async function validateToken(req, res, next) {
+  const token = req.query.token ?? req.body?.token;
+
+  if (!token) {
+    return res.status(401).json({ error: "Token não informado" });
+  }
+
+  if (!VALIDATE_TOKEN_URL) {
+    return res.status(500).json({ error: "URL de validação não configurada" });
+  }
+
+  try {
+    const response = await fetch(VALIDATE_TOKEN_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!payload?.valido) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    return next();
+  } catch (error) {
+    console.error("Erro ao validar token:", error);
+    return res.status(500).json({ error: "Erro ao validar token" });
+  }
+}
 
 function getMessageType(msg) {
   if (!msg.hasMedia) return "chat";
@@ -49,6 +95,7 @@ function applyTemplate(text, params = {}) {
 }
 
 const router = express.Router();
+router.use(validateToken);
 
 /**
  * LOGIN → QR CODE
