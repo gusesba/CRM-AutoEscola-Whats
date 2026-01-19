@@ -11,18 +11,7 @@ const { MessageMedia } = require("whatsapp-web.js");
 const BATCH_DELAY_MODE = "fixed";
 const BATCH_FIXED_DELAY_MS = 1500;
 const BATCH_RANDOM_DELAY_RANGE_MS = { min: 1000, max: 3000 };
-const DEFAULT_VALIDATE_ENDPOINT = "/api/usuario/validartoken";
-const VALIDATE_TOKEN_URL =
-  process.env.VALIDATE_TOKEN_URL ||
-  (process.env.API_BASE_URL
-    ? new URL(DEFAULT_VALIDATE_ENDPOINT, process.env.API_BASE_URL).toString()
-    : process.env.WHATSAPP_BACKUP_URL
-    ? new URL(
-        DEFAULT_VALIDATE_ENDPOINT,
-        new URL(process.env.WHATSAPP_BACKUP_URL).origin
-      ).toString()
-    : null);
-
+const VALIDATE_TOKEN_URL = process.env.VALIDATE_TOKEN_URL || null;
 async function validateToken(req, res, next) {
   const token = req.query.token ?? req.body?.token;
 
