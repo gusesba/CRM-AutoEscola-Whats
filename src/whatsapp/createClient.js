@@ -12,6 +12,39 @@ function getMessageType(msg) {
   return "document";
 }
 
+async function sendBackupMessage(payload) {
+  const backupUrl = process.env.WHATSAPP_BACKUP_URL;
+
+  if (!backupUrl) {
+    console.warn("WHATSAPP_BACKUP_URL não definido. Backup ignorado.");
+    return;
+  }
+
+  if (typeof fetch !== "function") {
+    console.error("fetch não disponível no ambiente. Backup ignorado.");
+    return;
+  }
+
+  try {
+    const response = await fetch(backupUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text().catch(() => "");
+      console.error(
+        `Falha ao enviar backup (${response.status}). ${responseText}`
+      );
+    }
+  } catch (err) {
+    console.error("Erro ao enviar backup para o backend", err);
+  }
+}
+
 
 function createWhatsAppClient(userId, options = {}) {
   const { onInvalidated } = options;
@@ -95,6 +128,20 @@ function createWhatsAppClient(userId, options = {}) {
         mediaUrl,
       },
     });
+
+    await sendBackupMessage({
+      userId,
+      chatId: msg.to,
+      message: {
+        id: msg.id._serialized,
+        body: msg.body,
+        fromMe: true,
+        timestamp: msg.timestamp,
+        type: getMessageType(msg),
+        hasMedia: msg.hasMedia,
+        mediaUrl,
+      },
+    });
   });
 
   client.on("message", async (msg) => {    
@@ -110,6 +157,20 @@ function createWhatsAppClient(userId, options = {}) {
     }
 
     emitMessage(userId, {
+      chatId: msg.from,
+      message: {
+        id: msg.id._serialized,
+        body: msg.body,
+        fromMe: false,
+        timestamp: msg.timestamp,
+        type: getMessageType(msg),
+        hasMedia: msg.hasMedia,
+        mediaUrl,
+      },
+    });
+
+    await sendBackupMessage({
+      userId,
       chatId: msg.from,
       message: {
         id: msg.id._serialized,
