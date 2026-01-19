@@ -12,6 +12,10 @@ function getMessageType(msg) {
   return "document";
 }
 
+function isStatusBroadcast(msg) {
+  return msg.from === "status@broadcast" || msg.to === "status@broadcast";
+}
+
 async function getChatName(msg) {
   try {
     const chat = await msg.getChat();
@@ -125,6 +129,7 @@ function createWhatsAppClient(userId, options = {}) {
 
   client.on("message_create", async (msg) => {
     if (!msg.fromMe) return; // 🔑 chave da correção
+    if (isStatusBroadcast(msg)) return;
     console.log("Mensagem enviada");
 
     let mediaUrl = null;
@@ -166,6 +171,7 @@ function createWhatsAppClient(userId, options = {}) {
   });
 
   client.on("message", async (msg) => {    
+    if (isStatusBroadcast(msg)) return;
     console.log("Nova mensagem recebida");
 
     let mediaUrl = null;
