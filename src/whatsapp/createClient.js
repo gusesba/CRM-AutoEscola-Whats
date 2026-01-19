@@ -12,6 +12,24 @@ function getMessageType(msg) {
   return "document";
 }
 
+async function getChatName(msg) {
+  try {
+    const chat = await msg.getChat();
+    if (!chat) return null;
+    if (chat.isGroup) return chat.name;
+    return (
+      chat.name ||
+      chat?.contact?.pushname ||
+      chat?.contact?.name ||
+      msg.notifyName ||
+      null
+    );
+  } catch (err) {
+    console.warn("Falha ao obter nome do chat", err);
+    return null;
+  }
+}
+
 async function sendBackupMessage(payload) {
   const backupUrl = process.env.WHATSAPP_BACKUP_URL;
 
@@ -115,6 +133,8 @@ function createWhatsAppClient(userId, options = {}) {
       // Salve em disco / S3 / CDN
       mediaUrl = `/whatsapp/${userId}/messages/${msg.id._serialized}/media`;
     }
+
+    const chatName = await getChatName(msg);
   
     emitMessage(userId, {
       chatId: msg.to,
@@ -132,6 +152,7 @@ function createWhatsAppClient(userId, options = {}) {
     await sendBackupMessage({
       userId,
       chatId: msg.to,
+      chatName,
       message: {
         id: msg.id._serialized,
         body: msg.body,
@@ -156,6 +177,8 @@ function createWhatsAppClient(userId, options = {}) {
       mediaUrl = `/whatsapp/${userId}/messages/${msg.id._serialized}/media`;
     }
 
+    const chatName = await getChatName(msg);
+
     emitMessage(userId, {
       chatId: msg.from,
       message: {
@@ -172,6 +195,7 @@ function createWhatsAppClient(userId, options = {}) {
     await sendBackupMessage({
       userId,
       chatId: msg.from,
+      chatName,
       message: {
         id: msg.id._serialized,
         body: msg.body,
