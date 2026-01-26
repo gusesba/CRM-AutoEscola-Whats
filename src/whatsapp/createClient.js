@@ -74,12 +74,21 @@ function createWhatsAppClient(userId, options = {}) {
   let ready = false;
   let active = true;
   let invalidated = false;
+  let qrAttempts = 0;
+  let qrTimeoutId = null;
+  const maxQrAttempts = 12;
+  const qrTimeoutMs = 5 * 60 * 1000;
 
   const invalidate = (reason) => {
     if (invalidated) return;
     invalidated = true;
     ready = false;
     active = false;
+    qrCodeBase64 = null;
+    if (qrTimeoutId) {
+      clearTimeout(qrTimeoutId);
+      qrTimeoutId = null;
+    }
     if (typeof onInvalidated === "function") {
       Promise.resolve(onInvalidated(reason)).catch((err) => {
         console.error(`[${userId}] Falha ao invalidar sessão`, err);
@@ -101,7 +110,26 @@ function createWhatsAppClient(userId, options = {}) {
     },
   });
 
+  if (qrTimeoutMs > 0) {
+    qrTimeoutId = setTimeout(() => {
+      if (ready || invalidated) return;
+      console.warn(
+        `[${userId}] Tempo limite de QR expirado (${qrTimeoutMs}ms)`
+      );
+      invalidate("qr_timeout");
+    }, qrTimeoutMs);
+  }
+
   client.on("qr", async (qr) => {
+    if (invalidated) return;
+    qrAttempts += 1;
+    if (maxQrAttempts > 0 && qrAttempts > maxQrAttempts) {
+      console.warn(
+        `[${userId}] Limite de QR atingido (${maxQrAttempts})`
+      );
+      invalidate("qr_attempts_exceeded");
+      return;
+    }
     qrCodeBase64 = await qrcode.toDataURL(qr);
     ready = false;
     console.log(`[${userId}] QR Code gerado`);
@@ -112,6 +140,10 @@ function createWhatsAppClient(userId, options = {}) {
     ready = true;
     active = true;
     qrCodeBase64 = null;
+    if (qrTimeoutId) {
+      clearTimeout(qrTimeoutId);
+      qrTimeoutId = null;
+    }
     console.log(`[${userId}] WhatsApp conectado`);
   });
 
